@@ -15,6 +15,8 @@ COPY . .
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/playwright
 
 # Install Playwright dependencies
+# Patch: apt-get update first because node:22-slim package index is stale
+RUN apt-get update
 RUN pnpm exec playwright install chromium --with-deps
 
 RUN pnpm run build

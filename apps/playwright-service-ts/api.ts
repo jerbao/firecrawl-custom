@@ -10,6 +10,7 @@ import {
 import dotenv from 'dotenv';
 import UserAgent from 'user-agents';
 import { getError } from './helpers/get_error';
+import { solveCaptchaIfPresent } from './helpers/capmonster';
 import { lookup } from 'dns/promises';
 import IPAddr from 'ipaddr.js';
 import { Server, RequestError } from 'proxy-chain';
@@ -310,6 +311,10 @@ const scrapePage = async (
   if (waitAfterLoad > 0) {
     await page.waitForTimeout(waitAfterLoad);
   }
+
+  // Smart CAPTCHA solver: only invoke CapMonster if page is actually blocked
+  // by a visible challenge widget (not on every request).
+  await solveCaptchaIfPresent(page, url);
 
   if (checkSelector) {
     try {
