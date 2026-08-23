@@ -74,6 +74,11 @@ services:
       BLOCK_MEDIA: ${BLOCK_MEDIA}
       # Configure maximum concurrent pages for Playwright browser instances
       MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-10}
+      # CapMonster smart captcha solver
+      CAPMONSTER_ENABLED: ${CAPMONSTER_ENABLED:-true}
+      CAPMONSTER_API_KEY: ${CAPMONSTER_API_KEY}
+      CAPMONSTER_TIMEOUT_MS: ${CAPMONSTER_TIMEOUT_MS:-60000}
+      CAPMONSTER_POLL_INTERVAL_MS: ${CAPMONSTER_POLL_INTERVAL_MS:-2000}
     networks:
       - backend
     security_opt:
