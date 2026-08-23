@@ -378,7 +378,12 @@ app.post('/scrape', async (req: Request, res: Response) => {
   const {
     url,
     wait_after_load = 0,
-    timeout = 15000,
+    // Default bumped 15s -> 45s so Cloudflare reputation checks and
+    // Turnstile/JS challenges complete before page.goto throws.
+    // The solver runs *after* goto, so a too-short timeout makes the
+    // solver fire on a half-loaded page and the fetch engine then
+    // returns SCRAPE_ALL_ENGINES_FAILED.
+    timeout = 45000,
     headers,
     check_selector,
     skip_tls_verification = false,

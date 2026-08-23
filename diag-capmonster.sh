@@ -24,12 +24,12 @@ probe_env() {
 }
 
 probe_patch() {
-  echo "=== [2/4] Patch compilado no /app/dist/ ==="
-  HITS=$(docker exec firecrawl-playwright-service-1 sh -c '
-    grep -rl "capmonster\|solveCaptchaIfPresent" /app/dist/ 2>/dev/null
+  echo "=== [2/4] Patch compilado no /usr/src/app/dist/ ==="
+  HITS=$(docker exec firecrawl-playwright-service-1 bash -c '
+    grep -rl "capmonster\|solveCaptchaIfPresent" /usr/src/app/dist/ 2>/dev/null
   ')
   if [ -z "$HITS" ]; then
-    echo "FALHA: patch NAO encontrado no /app/dist/"
+    echo "FALHA: patch NAO encontrado no /usr/src/app/dist/"
     echo "       Imagem precisa rebuildar com git pull + build --no-cache"
   else
     echo "OK: arquivos com patch:"
@@ -41,14 +41,15 @@ probe_patch() {
 probe_direct_solver() {
   echo "=== [3/4] Teste direto da API CapMonster do container playwright ==="
   echo "(confirma que a key CapMonster no .env funciona pra cobrar)"
-  docker exec firecrawl-playwright-service-1 sh -c '
+  docker exec firecrawl-playwright-service-1 bash -c '
     KEY="$CAPMONSTER_API_KEY"
     if [ -z "$KEY" ]; then
       echo "FALHA: CAPMONSTER_API_KEY vazia no container"
       exit 0
     fi
-    echo "key prefix: ${KEY:0:6}..."
-    echo "balance ANTES:"
+    PREFIX="${KEY:0:6}"
+    echo "key prefix: ${PREFIX}... (len=${#KEY})"
+    echo "balance:"
     curl -sS -m 8 -X POST https://api.capmonster.cloud/getBalance \
       -H "Content-Type: application/json" \
       -d "{\"clientKey\":\"$KEY\"}"
