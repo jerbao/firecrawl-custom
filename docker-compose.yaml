@@ -1,11 +1,8 @@
 name: firecrawl
 
 x-common-service: &common-service
-  # NOTE: If you don't want to build the service locally,
-  # comment out the build: statement and uncomment the image: statement
-  # image: ghcr.io/firecrawl/firecrawl
+  restart: unless-stopped
   build: apps/api
-
   ulimits:
     nofile:
       soft: 65535
@@ -55,15 +52,12 @@ x-common-env: &common-env
   SEARXNG_ENDPOINT: ${SEARXNG_ENDPOINT}
   SEARXNG_ENGINES: ${SEARXNG_ENGINES}
   SEARXNG_CATEGORIES: ${SEARXNG_CATEGORIES}
-  # Set NUQ_BACKEND=fdb to run the queue on FoundationDB instead of Postgres
   NUQ_BACKEND: ${NUQ_BACKEND}
   FDB_CLUSTER_FILE: ${NUQ_BACKEND:+/var/fdb/fdb.cluster}
 
 services:
   playwright-service:
-    # NOTE: If you don't want to build the service locally,
-    # comment out the build: statement and uncomment the image: statement
-    # image: ghcr.io/firecrawl/playwright-service:latest
+    restart: unless-stopped
     build: apps/playwright-service-ts
     environment:
       PORT: 3000
@@ -72,20 +66,23 @@ services:
       PROXY_PASSWORD: ${PROXY_PASSWORD}
       ALLOW_LOCAL_WEBHOOKS: ${ALLOW_LOCAL_WEBHOOKS}
       BLOCK_MEDIA: ${BLOCK_MEDIA}
-      # Configure maximum concurrent pages for Playwright browser instances
       MAX_CONCURRENT_PAGES: ${CRAWL_CONCURRENT_REQUESTS:-10}
-      # CapMonster smart captcha solver
       CAPMONSTER_ENABLED: ${CAPMONSTER_ENABLED:-true}
       CAPMONSTER_API_KEY: ${CAPMONSTER_API_KEY}
       CAPMONSTER_TIMEOUT_MS: ${CAPMONSTER_TIMEOUT_MS:-60000}
       CAPMONSTER_POLL_INTERVAL_MS: ${CAPMONSTER_POLL_INTERVAL_MS:-2000}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\" || exit 0"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     networks:
       - backend
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # Resource limits for Docker Compose (not Swarm)
     cpus: 2.0
     mem_limit: 4G
     memswap_limit: 4G
@@ -111,32 +108,38 @@ services:
       ENV: local
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
       playwright-service:
-        condition: service_started
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:${INTERNAL_PORT:-3002}/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\" || exit 0"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     ports:
       - "${PORT:-3002}:${INTERNAL_PORT:-3002}"
     volumes:
       - fdb-cluster-file:/var/fdb:ro
     command: node dist/src/harness.js --start-docker
-    # Resource limits for Docker Compose (not Swarm)
-    # Increase if you have more CPU cores/RAM available
     cpus: 4.0
     mem_limit: 8G
     memswap_limit: 8G
 
   redis:
-    # NOTE: If you want to use Valkey (open source) instead of Redis (source available),
-    # uncomment the Valkey statement and comment out the Redis statement.
-    # Using Valkey with Firecrawl is untested and not guaranteed to work. Use with caution.
     image: redis:alpine
-    # image: valkey/valkey:alpine
-
+    restart: unless-stopped
     networks:
       - backend
     command: redis-server --bind 0.0.0.0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     logging:
       driver: "json-file"
       options:
@@ -146,15 +149,16 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    restart: unless-stopped
     networks:
       - backend
     command: rabbitmq-server
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      interval: 5s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     logging:
       driver: "json-file"
       options:
@@ -163,14 +167,18 @@ services:
         compress: "true"
 
   nuq-postgres:
-    # NOTE: If you don't want to build the image locally,
-    # comment out the build: statement and uncomment the image: statement
-    # image: ghcr.io/firecrawl/nuq-postgres:latest
     build: apps/nuq-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     networks:
       - backend
     logging:
@@ -180,14 +188,18 @@ services:
         max-file: "3"
         compress: "true"
 
-  # FoundationDB queue backend (experimental). Enable by setting
-  # NUQ_BACKEND=fdb; the api container reads the shared cluster file from the
-  # fdb-cluster-file volume. Replaces nuq-postgres once stable.
   foundationdb:
     image: foundationdb/foundationdb:7.3.63
+    restart: unless-stopped
     environment:
       FDB_NETWORKING_MODE: container
       FDB_COORDINATOR_PORT: 4500
+    healthcheck:
+      test: ["CMD-SHELL", "fdbcli -C /var/fdb/fdb.cluster --exec 'status' || exit 0"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
     networks:
       - backend
     volumes:
@@ -200,7 +212,6 @@ services:
         max-file: "3"
         compress: "true"
 
-  # one-shot: creates the database on first boot (no-op afterwards)
   foundationdb-init:
     image: foundationdb/foundationdb:7.3.63
     depends_on:
